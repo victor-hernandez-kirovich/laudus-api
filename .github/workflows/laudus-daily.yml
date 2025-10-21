@@ -1,0 +1,47 @@
+name: Laudus Balance Sheet Daily Automation
+
+on:
+  schedule:
+    # Ejecutar diariamente a las 01:00 AM Chile (UTC-4 = 05:00 UTC)
+    - cron: '0 5 * * *'
+  
+  # Permitir ejecución manual desde GitHub UI
+  workflow_dispatch:
+
+jobs:
+  fetch-balance-sheet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 horas (para manejar endpoints lentos)
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r scripts/requirements.txt
+      
+      - name: Fetch Balance Sheet Data
+        env:
+          LAUDUS_API_URL: ${{ secrets.LAUDUS_API_URL }}
+          LAUDUS_USERNAME: ${{ secrets.LAUDUS_USERNAME }}
+          LAUDUS_PASSWORD: ${{ secrets.LAUDUS_PASSWORD }}
+          LAUDUS_COMPANY_VAT: ${{ secrets.LAUDUS_COMPANY_VAT }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+        run: python scripts/fetch_balancesheet.py
+      
+      - name: Upload logs as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: laudus-logs-${{ github.run_number }}
+          path: scripts/logs/
+          retention-days: 30

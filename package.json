@@ -1,0 +1,33 @@
+{
+  "name": "laudus-api-integration",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Integración con API de Laudus ERP para extracción de datos y visualizaciones",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node examples/balance-totals.js",
+    "dev:balance-standard": "node examples/balance-standard.js",
+    "dev:balance-8columns": "node examples/balance-8columns.js",
+    "dev:sales": "node examples/sales-customers.js",
+    "vercel:dev": "vercel dev",
+    "deploy": "vercel --prod",
+    "deploy:preview": "vercel"
+  },
+  "keywords": [
+    "laudus",
+    "erp",
+    "api",
+    "accounting",
+    "balance-sheet",
+    "chile"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

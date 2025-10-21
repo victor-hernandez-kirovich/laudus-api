@@ -1,0 +1,59 @@
+# Dependencias de Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Variables de entorno
+.env
+.env.local
+.env.*.local
+
+# Logs - PowerShell automation
+automation/logs/
+automation/mongodb-backup/
+*.log
+
+# Logs - Python/GitHub Actions
+scripts/logs/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build
+dist/
+build/
+out/
+
+# Temporal
+tmp/
+temp/
+*.tmp
+
+# Archivos de prueba
+test-results/
+coverage/
+
+# GitHub Actions artifacts (locales)
+.github/workflows/*.log
