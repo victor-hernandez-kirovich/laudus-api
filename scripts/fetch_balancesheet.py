@@ -111,8 +111,8 @@ class LaudusAPIClient:
             
             params = {
                 'dateTo': date_to,
-                'showAccountsWithZeroBalance': 'false',
-                'showOnlyAccountsWithActivity': 'true'
+                'showAccountsWithZeroBalance': 'true',
+                'showOnlyAccountsWithActivity': 'false'
             }
             
             url = f"{self.base_url}{endpoint['path']}"
