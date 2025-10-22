@@ -1,0 +1,64 @@
+name: Laudus Balance Sheet Manual Load
+
+on:
+  # Permitir ejecución manual con parámetros
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Target date (YYYY-MM-DD)'
+        required: true
+        type: string
+      endpoints:
+        description: 'Endpoints to fetch (comma-separated: totals,standard,8columns)'
+        required: true
+        type: string
+        default: 'totals,standard,8columns'
+
+jobs:
+  fetch-balance-sheet-manual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 horas
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r scripts/requirements.txt
+      
+      - name: Parse endpoints
+        id: parse
+        run: |
+          # Convert comma-separated to space-separated
+          ENDPOINTS="${{ github.event.inputs.endpoints }}"
+          ENDPOINTS_FORMATTED=$(echo "$ENDPOINTS" | tr ',' ' ')
+          echo "endpoints=$ENDPOINTS_FORMATTED" >> $GITHUB_OUTPUT
+      
+      - name: Fetch Balance Sheet Data
+        env:
+          LAUDUS_API_URL: ${{ secrets.LAUDUS_API_URL }}
+          LAUDUS_USERNAME: ${{ secrets.LAUDUS_USERNAME }}
+          LAUDUS_PASSWORD: ${{ secrets.LAUDUS_PASSWORD }}
+          LAUDUS_COMPANY_VAT: ${{ secrets.LAUDUS_COMPANY_VAT }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+        run: |
+          python scripts/fetch_balancesheet_manual.py \
+            --date "${{ github.event.inputs.date }}" \
+            --endpoints ${{ steps.parse.outputs.endpoints }}
+      
+      - name: Upload logs as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: laudus-manual-logs-${{ github.run_number }}
+          path: scripts/logs/
+          retention-days: 30
