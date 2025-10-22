@@ -20,11 +20,11 @@ Automatización completa para extracción diaria de datos de Balance Sheet desde
 
 - ✅ **Automatización 100% Cloud** - GitHub Actions ejecuta diariamente a la 01:00 AM (Chile)
 - ✅ **3 Endpoints Balance Sheet** - Totales, Standard, 8 Columnas
-- ✅ **MongoDB Atlas** - Almacenamiento en la nube con 414 registros actuales
-- ✅ **Dashboard Next.js 14** - Visualización interactiva con Recharts
+- ✅ **MongoDB Atlas** - Almacenamiento en la nube con datos actualizados diariamente
+- ✅ **Dashboard Next.js 15** - Visualización interactiva con Recharts
 - ✅ **Retry Logic** - Reintentos automáticos cada 5 minutos por hasta 6 horas
-- ✅ **Backup Local** - PowerShell automation en PC como respaldo
-- ✅ **Logging Completo** - GitHub Actions artifacts + archivos locales
+- ✅ **Admin Panel** - Carga manual de datos históricos desde dashboard
+- ✅ **Logging Completo** - GitHub Actions artifacts con retención de 30 días
 - ✅ **Costo $0/mes** - GitHub Actions (free) + MongoDB Atlas (free) + Vercel (free)
 
 ---
@@ -60,8 +60,7 @@ Automatización completa para extracción diaria de datos de Balance Sheet desde
 - Credenciales Laudus API
 
 ### Para Desarrollo Local
-- Python 3.8+ (para automation)
-- PowerShell 5.1+ (para backup local)
+- Python 3.8+ (para testing manual)
 - Node.js 18+ (para dashboard - ver laudus-dashboard/)
 - MongoDB Atlas connection string
 
@@ -76,22 +75,22 @@ Automatización completa para extracción diaria de datos de Balance Sheet desde
 - **Retry**: Cada 5 minutos hasta completar
 - **Output**: MongoDB Atlas + logs en GitHub artifacts
 
-### 2️⃣ **Backup PowerShell** (Local PC)
-- **Carpeta**: `automation/`
-- **Ejecuta**: Windows Task Scheduler (opcional)
-- **Propósito**: Backup si GitHub Actions falla
-- **Output**: JSON local + MongoDB
+### 2️⃣ **Dashboard Next.js** (laudus-dashboard/)
+- **Framework**: Next.js 15.5.6 con App Router
+- **UI**: Tailwind CSS + Recharts
+- **Features**: Visualización de indicadores financieros (Current Ratio)
+- **Admin Panel**: Carga manual de datos históricos
 
-### 3️⃣ **Scripts de Testing**
+### 3️⃣ **Script Python Principal**
 - **Carpeta**: `scripts/`
-- PowerShell scripts para testing manual
-- Python script principal para automation
+- `fetch_balancesheet.py` - Script de producción
+- `requirements.txt` - Dependencias (pymongo, requests, python-dotenv)
 
 ---
 
 ## 🔧 Instalación Local
 
-### Opción A: Solo Testing (Python)
+### Testing Manual (Python)
 
 ```bash
 # 1. Navegar al proyecto
@@ -108,19 +107,20 @@ cp .env.example .env
 python scripts/fetch_balancesheet.py
 ```
 
-### Opción B: Backup PowerShell (Windows)
+### Dashboard de Desarrollo
 
-```powershell
-# 1. Navegar a automation
-cd automation
+```bash
+# 1. Navegar al dashboard
+cd ../laudus-dashboard
 
-# 2. Editar config.json con tus credenciales
+# 2. Instalar dependencias
+npm install
 
-# 3. Configurar Task Scheduler
-.\Setup-Scheduler.ps1
+# 3. Configurar variables de entorno
+# Crear .env.local con MONGODB_URI y credenciales Laudus
 
-# 4. Probar manualmente
-.\Test-Automation.ps1
+# 4. Iniciar servidor de desarrollo
+npm run dev
 ```
 
 ---
@@ -142,23 +142,53 @@ Agregar los siguientes 6 secrets:
 | `MONGODB_URI` | `mongodb+srv://user:pass@cluster...` | Connection string MongoDB Atlas |
 | `MONGODB_DATABASE` | `laudus_data` | Nombre de la base de datos |
 
-### Paso 2: Activar GitHub Actions
+### Paso 2: Workflow Schedule
 
-El workflow ya está configurado en `.github/workflows/laudus-daily.yml`
+El workflow ya está configurado en `.github/workflows/laudus-daily.yml`:
 
-```yaml
-# Se ejecuta automáticamente:
-# - Todos los días a las 01:00 AM (Chile)
-# - También puedes ejecutarlo manualmente desde GitHub Actions tab
+- **Frecuencia**: Diaria
+- **Hora**: 01:00 AM Chile (05:00 UTC)
+- **Timeout**: 6 horas (360 minutos)
+- **Ejecución manual**: También disponible desde Actions tab
+
+### Paso 3: Flujo de Ejecución
+
+```
+1. Autenticación → Get JWT token
+2. Fecha → Calcular ayer (yesterday)
+3. Loop endpoints:
+   - Fetch /balanceSheet/totals
+   - Fetch /balanceSheet/standard
+   - Fetch /balanceSheet/8Columns
+4. Guardar en MongoDB Atlas
+5. Reintentos cada 5 min si falla
+6. Logs → GitHub Actions Artifacts
 ```
 
-### Paso 3: Verificar Primera Ejecución
+### Paso 4: Ejecución Manual (Testing)
 
 1. Ve a **Actions** tab en GitHub
 2. Selecciona "Laudus Balance Sheet Daily Automation"
-3. Click en **Run workflow** para test manual
-4. Espera ~20 minutos (depende de velocidad de Laudus API)
-5. Revisa logs para confirmar éxito
+3. Click en **Run workflow**
+4. Seleccionar branch `main`
+5. Click en **Run workflow**
+6. Espera ~20 minutos (depende de velocidad de Laudus API)
+
+### Logs y Artifacts
+
+Los logs se guardan como **artifacts** en GitHub Actions:
+
+- Nombre: `laudus-logs-{run_number}`
+- Retención: 30 días
+- Ubicación: Actions > Workflow run > Artifacts
+
+### Manejo de Errores
+
+- **Timeout por endpoint**: 15 minutos (900 segundos)
+- **Reintentos**: Cada 5 minutos hasta completar
+- **Ventana total**: 6 horas
+- **Exit code**: 0 (éxito), 1 (error)
+- **Notificaciones**: GitHub envía email automáticamente si falla
 
 ---
 
@@ -209,40 +239,17 @@ El sistema extrae datos de 3 endpoints de Laudus API:
 laudus-api/
 │
 ├── .github/
-│   ├── workflows/
-│   │   └── laudus-daily.yml           # ✅ GitHub Actions workflow (producción)
-│   └── README.md                      # Documentación GitHub Actions
+│   └── workflows/
+│       └── laudus-daily.yml           # ✅ GitHub Actions workflow (producción)
 │
 ├── scripts/
 │   ├── fetch_balancesheet.py          # ✅ Script Python principal (usado por GitHub Actions)
-│   ├── requirements.txt               # ✅ Dependencias Python
-│   ├── Get-LaudusToken.ps1            # Testing manual
-│   ├── Get-BalanceSheet.ps1           # Testing manual
-│   ├── Test-LaudusAPI.ps1             # Testing manual
-│   └── Export-BalanceSheetToJson.ps1  # Exportar JSON
-│
-├── automation/                        # ⚠️ Backup PowerShell local
-│   ├── BalanceSheet-Automation.ps1    # Script principal local
-│   ├── Setup-Scheduler.ps1            # Configurar Task Scheduler
-│   ├── Test-Automation.ps1            # Probar automation
-│   ├── Upload-ToMongoDB.ps1           # Subir a MongoDB
-│   ├── config.json                    # Config local
-│   ├── README.md                      # Docs automation
-│   ├── modules/
-│   │   ├── LaudusAPI.ps1              # Módulo API
-│   │   └── MongoDB.ps1                # Módulo MongoDB
-│   └── logs/                          # Logs locales (git ignored)
-│       ├── errors/
-│       └── success/
+│   └── requirements.txt               # ✅ Dependencias Python
 │
 ├── .env.example                       # Template variables entorno
 ├── .gitignore                         # Archivos ignorados por Git
-├── package.json                       # Metadata del proyecto
-├── Quick-BalanceSheet.ps1             # Script rápido de prueba
-├── test-laudus-api.ps1                # Testing API
-├── README.md                          # Este archivo
-├── DEPLOYMENT.md                      # Guía de deploy
-└── PROYECTO_COMPLETADO.md             # Resumen del proyecto
+├── package.json                       # Metadata del proyecto (legacy)
+└── README.md                          # Este archivo
 ```
 
 ### 📂 Archivos Clave
@@ -252,8 +259,7 @@ laudus-api/
 | `.github/workflows/laudus-daily.yml` | Workflow GitHub Actions | Producción (cloud) |
 | `scripts/fetch_balancesheet.py` | Automation Python | GitHub Actions |
 | `scripts/requirements.txt` | Dependencias Python | GitHub Actions |
-| `automation/BalanceSheet-Automation.ps1` | Automation PowerShell | PC local (backup) |
-| `automation/config.json` | Config local | PowerShell scripts |
+| `.env.example` | Template de configuración | Desarrollo local |
 
 ---
 
@@ -304,15 +310,12 @@ print("Última actualización:", latest['timestamp'])
 
 ### Testing Manual
 
-```powershell
-# Test rápido con PowerShell
-.\Quick-BalanceSheet.ps1
-
-# Test completo
-.\test-laudus-api.ps1
-
-# Test Python
+```bash
+# Ejecutar script Python manualmente
 python scripts/fetch_balancesheet.py
+
+# Verificar datos en MongoDB
+python -c "from pymongo import MongoClient; print(MongoClient('tu_uri').laudus_data.list_collection_names())"
 ```
 
 ---
@@ -325,8 +328,8 @@ python scripts/fetch_balancesheet.py
 
 **Solución**:
 1. Verificar logs en GitHub Actions Artifacts
-2. Ejecutar backup PowerShell local manualmente
-3. Reintentar workflow manualmente
+2. Usar admin panel del dashboard para cargar datos manualmente
+3. Reintentar workflow manualmente desde GitHub Actions
 
 ### ❌ MongoDB connection error
 
@@ -335,27 +338,26 @@ python scripts/fetch_balancesheet.py
 **Solución**:
 1. Verificar secret `MONGODB_URI` en GitHub
 2. Confirmar que incluye password URL-encoded (`@` → `%40`, etc.)
-3. Probar conexión desde MongoDB Compass
+3. Verificar whitelist IP en MongoDB Atlas (permitir GitHub Actions IPs: 0.0.0.0/0 para testing)
+4. Probar conexión desde MongoDB Compass
 
 ### ❌ Laudus API retorna 401 Unauthorized
 
 **Causa**: Credenciales incorrectas o token expirado.
 
 **Solución**:
-1. Verificar secrets en GitHub Actions
+1. Verificar secrets en GitHub Actions: `LAUDUS_USERNAME`, `LAUDUS_PASSWORD`, `LAUDUS_COMPANY_VAT`
 2. El script auto-renueva el token cada 3 intentos
-3. Verificar que usuario API tiene permisos activos
+3. Verificar que usuario API tiene permisos activos en Laudus
 
-### ❌ PowerShell "Module not found"
+### ❌ GitHub Actions: "Missing required environment variables"
 
-**Causa**: Módulos PowerShell no están en la ubicación correcta.
+**Causa**: Secrets no configurados correctamente.
 
 **Solución**:
-```powershell
-# Verificar estructura
-cd automation
-ls modules/  # Debe mostrar LaudusAPI.ps1 y MongoDB.ps1
-```
+1. Verificar que los 6 secrets estén creados en GitHub
+2. Nombres deben coincidir exactamente (case-sensitive)
+3. Re-ejecutar workflow después de agregar secrets
 
 ### ❌ Python "Module not found"
 
@@ -378,14 +380,10 @@ pip install -r scripts/requirements.txt
 
 ---
 
-## � Documentación Adicional
+## 📄 Documentación Adicional
 
-- 📖 **DEPLOYMENT.md** - Guía completa de deploy paso a paso
-- 📖 **PROYECTO_COMPLETADO.md** - Resumen ejecutivo del proyecto
-- 📖 **automation/README.md** - Documentación PowerShell automation
-- 📖 **.github/README.md** - Documentación GitHub Actions
-- 📖 **C:\Users\victo\Desktop\DEPLOY-INSTRUCTIONS.md** - Instrucciones deployment
-- 📖 **C:\Users\victo\Desktop\PROJECT-SUMMARY.md** - Resumen completo con arquitectura
+- 📖 **laudus-dashboard/README.md** - Documentación del dashboard Next.js
+- 📖 **.github/workflows/laudus-daily.yml** - Configuración del workflow de automatización
 
 ---
 
