@@ -13,6 +13,8 @@ from typing import Dict, List, Optional
 import argparse
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
@@ -62,6 +64,18 @@ class LaudusAPIClient:
         self.base_url = CONFIG['api_url']
         self.token: Optional[str] = None
         self.session = requests.Session()
+        
+        # Configure retry strategy
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+        
         self.session.headers.update({
             'Content-Type': 'application/json',
             'Accept': 'application/json'
@@ -85,8 +99,7 @@ class LaudusAPIClient:
             )
             response.raise_for_status()
             
-            token_data = response.json()
-            self.token = token_data.get('token')
+            self.token = response.text.strip('"')
             self.session.headers.update({'Authorization': f'Bearer {self.token}'})
             
             logger.info("Autenticacion exitosa")
