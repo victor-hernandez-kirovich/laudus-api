@@ -99,7 +99,9 @@ class LaudusAPIClient:
             )
             response.raise_for_status()
             
-            self.token = response.text.strip('"')
+            # Extract token from JSON response
+            token_data = response.json()
+            self.token = token_data.get('token')
             logger.info(f"Token obtenido (primeros 20 chars): {self.token[:20]}...")
             logger.info(f"Token length: {len(self.token)}")
             self.session.headers.update({'Authorization': f'Bearer {self.token}'})
