@@ -100,6 +100,8 @@ class LaudusAPIClient:
             response.raise_for_status()
             
             self.token = response.text.strip('"')
+            logger.info(f"Token obtenido (primeros 20 chars): {self.token[:20]}...")
+            logger.info(f"Token length: {len(self.token)}")
             self.session.headers.update({'Authorization': f'Bearer {self.token}'})
             
             logger.info("Autenticacion exitosa")
@@ -113,6 +115,7 @@ class LaudusAPIClient:
         """Fetch balance sheet data from specified endpoint"""
         try:
             logger.info(f"Obteniendo {endpoint['name']}...")
+            logger.info(f"Authorization header present: {'Authorization' in self.session.headers}")
             
             params = {
                 'dateTo': date_to,
