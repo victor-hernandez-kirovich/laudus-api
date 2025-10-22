@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import logging
+import time
 from datetime import datetime
 from typing import Dict, List, Optional
 import argparse
@@ -35,6 +36,9 @@ CONFIG = {
     'mongodb_uri': os.getenv('MONGODB_URI'),
     'mongodb_database': os.getenv('MONGODB_DATABASE', 'laudus_data'),
     'timeout': 900,  # 15 minutes
+    'retry_delay': 300,  # 5 minutes between retries
+    'endpoint_delay': 120,  # 2 minutes between endpoints
+    'max_retries': 20,  # Maximum retry attempts per endpoint
 }
 
 # Endpoints configuration
@@ -65,10 +69,10 @@ class LaudusAPIClient:
         self.token: Optional[str] = None
         self.session = requests.Session()
         
-        # Configure retry strategy
+        # Configure retry strategy with longer delays
         retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
+            total=2,  # Reduced from 3 - we have application-level retries
+            backoff_factor=10,  # Increased from 1 - wait 10, 20 seconds
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"]
         )
@@ -102,8 +106,6 @@ class LaudusAPIClient:
             # Extract token from JSON response
             token_data = response.json()
             self.token = token_data.get('token')
-            logger.info(f"Token obtenido (primeros 20 chars): {self.token[:20]}...")
-            logger.info(f"Token length: {len(self.token)}")
             self.session.headers.update({'Authorization': f'Bearer {self.token}'})
             
             logger.info("Autenticacion exitosa")
@@ -116,9 +118,6 @@ class LaudusAPIClient:
     def fetch_balance_sheet(self, endpoint: Dict, date_to: str) -> Optional[List[Dict]]:
         """Fetch balance sheet data from specified endpoint"""
         try:
-            logger.info(f"Obteniendo {endpoint['name']}...")
-            logger.info(f"Authorization header present: {'Authorization' in self.session.headers}")
-            
             params = {
                 'dateTo': date_to,
                 'showAccountsWithZeroBalance': 'true',
@@ -214,7 +213,7 @@ class MongoDBClient:
 
 
 def main():
-    """Main execution function"""
+    """Main execution function with intelligent retry logic"""
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Fetch Laudus balance sheet data manually')
     parser.add_argument('--date', required=True, help='Target date in YYYY-MM-DD format')
@@ -254,38 +253,107 @@ def main():
         logger.error("Error al conectar con MongoDB")
         sys.exit(1)
     
-    # Track results
+    # Track completion status for each endpoint
+    completed = {endpoint['name']: False for endpoint in selected_endpoints}
     results = []
+    attempt = 0
+    max_attempts = CONFIG['max_retries']
     
-    # Process each endpoint
-    for endpoint in selected_endpoints:
-        # Fetch data
-        data = api_client.fetch_balance_sheet(endpoint, target_date)
+    # Main retry loop
+    while attempt < max_attempts and not all(completed.values()):
+        attempt += 1
+        logger.info(f"--- Intento #{attempt} ---")
         
-        if data is not None:
-            # Save to MongoDB
-            success = mongo_client.save_data(
-                endpoint['collection'],
-                data,
-                endpoint['name'],
-                target_date
-            )
+        # Renew token every 3 attempts
+        if attempt > 1 and attempt % 3 == 1:
+            logger.info("Renovando token de autenticacion...")
+            if not api_client.authenticate():
+                logger.error("Error al renovar token")
+                time.sleep(CONFIG['retry_delay'])
+                continue
+        
+        # Process each endpoint
+        for i, endpoint in enumerate(selected_endpoints):
+            if completed[endpoint['name']]:
+                logger.info(f"Omitiendo {endpoint['name']} (ya completado)")
+                continue
             
-            results.append({
-                'endpoint': endpoint['name'],
-                'success': success,
-                'records': len(data) if success else 0
-            })
-        else:
-            results.append({
-                'endpoint': endpoint['name'],
-                'success': False,
-                'records': 0
-            })
+            # Add delay between endpoints (except first one in first attempt)
+            if attempt == 1 and i > 0:
+                logger.info(f"Esperando {CONFIG['endpoint_delay']}s antes del siguiente endpoint...")
+                time.sleep(CONFIG['endpoint_delay'])
+            
+            # Fetch data
+            logger.info(f"Obteniendo {endpoint['name']}...")
+            data = api_client.fetch_balance_sheet(endpoint, target_date)
+            
+            if data is not None:
+                # Save to MongoDB
+                success = mongo_client.save_data(
+                    endpoint['collection'],
+                    data,
+                    endpoint['name'],
+                    target_date
+                )
+                
+                if success:
+                    completed[endpoint['name']] = True
+                    logger.info(f"[OK] {endpoint['name']} completado exitosamente")
+                    
+                    # Update or add result
+                    result_exists = False
+                    for r in results:
+                        if r['endpoint'] == endpoint['name']:
+                            r['success'] = True
+                            r['records'] = len(data)
+                            result_exists = True
+                            break
+                    
+                    if not result_exists:
+                        results.append({
+                            'endpoint': endpoint['name'],
+                            'success': True,
+                            'records': len(data)
+                        })
+                else:
+                    logger.error(f"[FAIL] Error al guardar {endpoint['name']} en MongoDB")
+            else:
+                logger.error(f"[FAIL] Error al obtener {endpoint['name']}")
+            
+            logger.info("")
         
-        logger.info("")
+        # Check if all completed
+        if all(completed.values()):
+            logger.info("=" * 60)
+            logger.info("  [OK] TODOS LOS ENDPOINTS COMPLETADOS")
+            logger.info("=" * 60)
+            break
+        
+        # Wait before next attempt
+        if attempt < max_attempts:
+            pending = [name for name, status in completed.items() if not status]
+            logger.info(f"Pendientes: {', '.join(pending)}")
+            logger.info(f"Esperando {CONFIG['retry_delay']}s antes de reintentar...")
+            time.sleep(CONFIG['retry_delay'])
+    
+    # Add failed endpoints to results
+    for endpoint in selected_endpoints:
+        if not completed[endpoint['name']]:
+            result_exists = False
+            for r in results:
+                if r['endpoint'] == endpoint['name']:
+                    result_exists = True
+                    break
+            
+            if not result_exists:
+                results.append({
+                    'endpoint': endpoint['name'],
+                    'success': False,
+                    'records': 0
+                })
     
     # Final summary
+    logger.info("")
     logger.info("=" * 60)
     logger.info("  RESUMEN")
     logger.info("=" * 60)
