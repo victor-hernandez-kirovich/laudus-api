@@ -2,8 +2,11 @@ name: Laudus Balance Sheet Daily Automation
 
 on:
   schedule:
-    # Ejecutar diariamente a las 11:30 PM Chile (UTC-4 = 03:30 UTC del día siguiente)
-    - cron: '30 3 * * *'
+    # Ejecutar diariamente a las 10:00 PM Chile
+    # Horario verano (Sep-Abr): UTC-3 → 22:00 CLT = 01:00 UTC
+    # Horario invierno (Abr-Sep): UTC-4 → 22:00 CLT = 02:00 UTC
+    # Nota: Ajustar manualmente entre '0 1 * * *' (verano) y '0 2 * * *' (invierno)
+    - cron: '0 1 * * *'
   
   # Permitir ejecución manual desde GitHub UI
   workflow_dispatch:
@@ -17,10 +20,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Setup Python 3.14
+      - name: Setup Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: '3.13'
           cache: 'pip'
       
       - name: Install dependencies

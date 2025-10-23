@@ -79,7 +79,7 @@ class LaudusAPIClient:
     def authenticate(self) -> bool:
         """Get JWT token from Laudus API"""
         try:
-            logger.info("🔐 Authenticating with Laudus API...")
+            logger.info(f"🔐 Authenticating with Laudus {CONFIG['api_url']}...")
             
             payload = {
                 'userName': CONFIG['username'],
@@ -94,14 +94,36 @@ class LaudusAPIClient:
             )
             response.raise_for_status()
             
-            self.token = response.text.strip('"')
-            self.session.headers.update({'Authorization': f'Bearer {self.token}'})
+            # Extract token properly - response could be JSON or plain text
+            try:
+                # Try JSON first
+                token_data = response.json()
+                if isinstance(token_data, dict) and 'token' in token_data:
+                    self.token = token_data['token']
+                elif isinstance(token_data, str):
+                    self.token = token_data
+                else:
+                    self.token = str(token_data)
+            except:
+                # Fallback to text response
+                self.token = response.text.strip().strip('"').strip("'")
+            
+            # Update session headers with token
+            self.session.headers.update({
+                'Authorization': f'Bearer {self.token}',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            })
             
             logger.info("✅ Authentication successful")
+            logger.debug(f"Token length: {len(self.token)} chars")
             return True
             
         except Exception as e:
             logger.error(f"❌ Authentication failed: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Response status: {e.response.status_code}")
+                logger.error(f"Response text: {e.response.text[:200]}")
             return False
     
     def fetch_balance_sheet(self, endpoint: Dict, date_to: str) -> Optional[List[Dict]]:
@@ -117,6 +139,8 @@ class LaudusAPIClient:
             
             url = f"{self.base_url}{endpoint['path']}"
             logger.info(f"   URL: {url}")
+            logger.debug(f"   Params: {params}")
+            logger.debug(f"   Has token: {self.token is not None}")
             
             response = self.session.get(
                 url,
@@ -133,6 +157,12 @@ class LaudusAPIClient:
             
         except requests.Timeout:
             logger.error(f"⏱️ Timeout fetching {endpoint['name']} (>{CONFIG['timeout']}s)")
+            return None
+        except requests.HTTPError as e:
+            logger.error(f"❌ HTTP Error fetching {endpoint['name']}: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"   Status: {e.response.status_code}")
+                logger.error(f"   Response: {e.response.text[:200]}")
             return None
         except Exception as e:
             logger.error(f"❌ Error fetching {endpoint['name']}: {e}")
