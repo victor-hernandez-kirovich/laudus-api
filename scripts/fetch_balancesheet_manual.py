@@ -217,6 +217,7 @@ class MongoDBClient:
                 'endpointType': endpoint_name,
                 'recordCount': len(data),
                 'insertedAt': datetime.utcnow(),
+                'loadSource': 'manual',
                 'data': data
             }
             
