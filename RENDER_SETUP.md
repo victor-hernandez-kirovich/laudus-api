@@ -84,13 +84,13 @@ python scripts/fetch_balancesheet_backfill.py
 
 ### Paso 3.3: Schedule
 
-1. **Schedule**: `0 2 * * *`
-   - Esto es **23:00 hora Chile** (UTC-3)
-   - En UTC es 02:00
+1. **Schedule**: `0 4 * * *`
+   - Esto es **01:00 hora Chile** (UTC-3)
+   - En UTC es 04:00
    
 2. O usa la interfaz gráfica:
    - **Frequency**: Daily
-   - **Hour**: 02 (UTC)
+   - **Hour**: 04 (UTC)
    - **Minute**: 00
 
 ### Paso 3.4: Plan
@@ -244,7 +244,7 @@ Modo: monthly
 
 En el Dashboard verás:
 ```
-Next scheduled run: Oct 29, 2025 at 02:00 UTC (Oct 28, 23:00 CLT)
+Next scheduled run: Oct 29, 2025 at 04:00 UTC (Oct 29, 01:00 CLT)
 ```
 
 ---
@@ -331,8 +331,8 @@ Verás en los logs:
 **Causa:** Timezone confusión
 
 **Solución:**
-1. Verifica el schedule: `0 2 * * *` es **02:00 UTC** = **23:00 CLT** (horario verano Chile)
-2. Si estás en horario invierno (UTC-4), ajusta a: `0 3 * * *`
+1. Verifica el schedule: `0 4 * * *` es **04:00 UTC** = **01:00 CLT** (horario verano Chile)
+2. Si estás en horario invierno (UTC-4), ajusta a: `0 5 * * *`
 3. Settings → Edit schedule
 
 ---
@@ -383,16 +383,16 @@ Busca documentos con fechas entre `2025-01-01` y `2025-09-30`.
 ## 📅 Timeline Esperado
 
 ```
-Día 1 (28-Oct 23:00): Procesa Enero 2025   ✅
-Día 2 (29-Oct 23:00): Procesa Febrero 2025 ✅
-Día 3 (30-Oct 23:00): Procesa Marzo 2025   ✅
-Día 4 (31-Oct 23:00): Procesa Abril 2025   ✅
-Día 5 (01-Nov 23:00): Procesa Mayo 2025    ✅
-Día 6 (02-Nov 23:00): Procesa Junio 2025   ✅
-Día 7 (03-Nov 23:00): Procesa Julio 2025   ✅
-Día 8 (04-Nov 23:00): Procesa Agosto 2025  ✅
-Día 9 (05-Nov 23:00): Procesa Septiembre 2025 ✅
-Día 10 (06-Nov 23:00): Confirma todo completo 🎉
+Día 1 (29-Oct 01:00): Procesa Enero 2025   ✅
+Día 2 (30-Oct 01:00): Procesa Febrero 2025 ✅
+Día 3 (31-Oct 01:00): Procesa Marzo 2025   ✅
+Día 4 (01-Nov 01:00): Procesa Abril 2025   ✅
+Día 5 (02-Nov 01:00): Procesa Mayo 2025    ✅
+Día 6 (03-Nov 01:00): Procesa Junio 2025   ✅
+Día 7 (04-Nov 01:00): Procesa Julio 2025   ✅
+Día 8 (05-Nov 01:00): Procesa Agosto 2025  ✅
+Día 9 (06-Nov 01:00): Procesa Septiembre 2025 ✅
+Día 10 (07-Nov 01:00): Confirma todo completo 🎉
 ```
 
 **Total: 9-10 días para completar Enero-Septiembre 2025**

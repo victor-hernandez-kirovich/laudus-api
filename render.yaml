@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     region: oregon
-    schedule: "0 2 * * *"  # 23:00 Chile (UTC-3) = 02:00 UTC
+    schedule: "0 4 * * *"  # 01:00 Chile (UTC-3) = 04:00 UTC
     repo: https://github.com/victor-hernandez-kirovich/laudus-api
     branch: main
     rootDir: .
