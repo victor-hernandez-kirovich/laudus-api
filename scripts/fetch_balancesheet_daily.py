@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """
-Laudus Balance Sheet Backfill Script
-Para Render.com - Procesa datos históricos automáticamente (Enero-Septiembre 2025)
+Laudus Balance Sheet Daily Backfill Script
+Para GitHub Actions - Procesa lote de fechas faltantes automáticamente
 
-Este script procesa un mes completo por ejecución.
-Se ejecuta diariamente hasta completar todos los meses pendientes.
+Configuración desde variables de entorno:
+- BACKFILL_START_DATE: Fecha inicio (YYYY-MM-DD)
+- BACKFILL_END_DATE: Fecha fin (YYYY-MM-DD)
+- MAX_DATES_PER_RUN: Máximo de fechas a procesar por ejecución
+- TIMEOUT_SECONDS: Timeout por endpoint (default: 1800s = 30min)
+- DELAY_BETWEEN_ENDPOINTS: Pausa entre endpoints (default: 300s = 5min)
+- DELAY_BETWEEN_DATES: Pausa entre fechas (default: 120s = 2min)
 """
 
 import os
@@ -14,17 +19,23 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-from calendar import monthrange
 
 import requests
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
 # Configure logging
+LOG_DIR = os.path.join(os.path.dirname(__file__), 'logs')
+os.makedirs(LOG_DIR, exist_ok=True)
+
+log_file = os.path.join(LOG_DIR, f"{datetime.now().strftime('%Y-%m-%d')}-backfill-auto.log")
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -36,19 +47,18 @@ CONFIG = {
     'company_vat': os.getenv('LAUDUS_COMPANY_VAT'),
     'mongodb_uri': os.getenv('MONGODB_URI'),
     'mongodb_database': os.getenv('MONGODB_DATABASE', 'laudus_data'),
-    'timeout': 900,  # 15 minutes
-    'retry_delay': 300,  # 5 minutes
+    'timeout': int(os.getenv('TIMEOUT_SECONDS', '1800')),  # 30 minutes default
+    'retry_delay': 300,  # 5 minutes between retries
     'max_retries': 3,
-    'delay_between_dates': 60,  # 1 minute between dates
-    'delay_between_endpoints': 120,  # 2 minutes between endpoints
+    'delay_between_endpoints': int(os.getenv('DELAY_BETWEEN_ENDPOINTS', '300')),  # 5 min
+    'delay_between_dates': int(os.getenv('DELAY_BETWEEN_DATES', '120')),  # 2 min
 }
 
 # Backfill configuration
 BACKFILL_CONFIG = {
-    'start_date': os.getenv('BACKFILL_START_DATE', '2025-01-01'),
+    'start_date': os.getenv('BACKFILL_START_DATE', '2025-07-01'),
     'end_date': os.getenv('BACKFILL_END_DATE', '2025-09-30'),
-    'mode': os.getenv('BACKFILL_MODE', 'monthly'),  # 'monthly' or 'daily'
-    'max_dates_per_run': int(os.getenv('MAX_DATES_PER_RUN', '31')),
+    'max_dates_per_run': int(os.getenv('MAX_DATES_PER_RUN', '7')),
 }
 
 # Endpoints configuration
@@ -232,7 +242,7 @@ class MongoDBClient:
                 'endpointType': endpoint_name,
                 'recordCount': len(data),
                 'insertedAt': datetime.utcnow(),
-                'loadSource': 'backfill-render',
+                'loadSource': 'backfill-auto-github',
                 'data': data
             }
             
@@ -243,6 +253,7 @@ class MongoDBClient:
                 upsert=True
             )
             
+            logger.info(f"   ✅ {endpoint_name} guardado ({len(data)} registros)")
             return True
                 
         except PyMongoError as e:
@@ -271,62 +282,17 @@ def generate_date_range(start_date: str, end_date: str) -> List[str]:
     return dates
 
 
-def get_month_dates(year_month: str) -> List[str]:
-    """Get all dates in a given month (YYYY-MM format)"""
-    year, month = map(int, year_month.split('-'))
-    num_days = monthrange(year, month)[1]
+def get_missing_dates(mongo_client: MongoDBClient, start_date: str, end_date: str) -> List[str]:
+    """Get list of dates that are incomplete (have missing endpoints)"""
+    all_dates = generate_date_range(start_date, end_date)
+    missing_dates = []
     
-    dates = []
-    for day in range(1, num_days + 1):
-        date_str = f"{year:04d}-{month:02d}-{day:02d}"
-        dates.append(date_str)
+    for date_str in all_dates:
+        all_exist, _ = mongo_client.check_date_exists(date_str)
+        if not all_exist:
+            missing_dates.append(date_str)
     
-    return dates
-
-
-def get_missing_months(mongo_client: MongoDBClient, start_date: str, end_date: str) -> List[str]:
-    """
-    Get list of months that are incomplete (have missing dates)
-    Returns list like: ['2025-01', '2025-02', ...]
-    """
-    start = datetime.strptime(start_date, '%Y-%m-%d')
-    end = datetime.strptime(end_date, '%Y-%m-%d')
-    
-    months = []
-    current = start.replace(day=1)
-    
-    while current <= end:
-        year_month = current.strftime('%Y-%m')
-        months.append(year_month)
-        
-        # Move to next month
-        if current.month == 12:
-            current = current.replace(year=current.year + 1, month=1)
-        else:
-            current = current.replace(month=current.month + 1)
-    
-    # Check which months have missing dates
-    missing_months = []
-    
-    for year_month in months:
-        month_dates = get_month_dates(year_month)
-        
-        # Filter dates within the backfill range
-        valid_dates = [d for d in month_dates 
-                      if start_date <= d <= end_date]
-        
-        # Check if any date is missing
-        has_missing = False
-        for date_str in valid_dates:
-            all_exist, _ = mongo_client.check_date_exists(date_str)
-            if not all_exist:
-                has_missing = True
-                break
-        
-        if has_missing:
-            missing_months.append(year_month)
-    
-    return missing_months
+    return missing_dates
 
 
 def process_date(api_client: LaudusAPIClient, mongo_client: MongoDBClient, 
@@ -338,7 +304,7 @@ def process_date(api_client: LaudusAPIClient, mongo_client: MongoDBClient,
     all_exist, missing_endpoints = mongo_client.check_date_exists(date_str)
     
     if all_exist:
-        logger.info(f"   ⏭️  Ya existe en MongoDB, omitiendo")
+        logger.info(f"   ⏭️  Ya existe completa en MongoDB, omitiendo")
         return True
     
     if missing_endpoints:
@@ -371,7 +337,6 @@ def process_date(api_client: LaudusAPIClient, mongo_client: MongoDBClient,
                 )
                 
                 if success:
-                    logger.info(f"   ✅ {endpoint['name']} guardado ({len(data)} registros)")
                     success_count += 1
                     break
                 else:
@@ -403,12 +368,13 @@ def process_date(api_client: LaudusAPIClient, mongo_client: MongoDBClient,
 def main():
     """Main execution function"""
     logger.info("=" * 70)
-    logger.info("  LAUDUS BACKFILL - RENDER.COM")
-    logger.info("  Procesamiento Histórico: Enero-Septiembre 2025")
+    logger.info("  LAUDUS BACKFILL AUTO - GITHUB ACTIONS")
+    logger.info("  Procesamiento por lotes: Jul-Sep 2025")
     logger.info("=" * 70)
     logger.info(f"Inicio: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Rango: {BACKFILL_CONFIG['start_date']} a {BACKFILL_CONFIG['end_date']}")
-    logger.info(f"Modo: {BACKFILL_CONFIG['mode']}")
+    logger.info(f"Máximo por ejecución: {BACKFILL_CONFIG['max_dates_per_run']} fechas")
+    logger.info(f"Timeout por endpoint: {CONFIG['timeout']}s ({CONFIG['timeout']//60} min)")
     logger.info("")
     
     # Validate configuration
@@ -431,47 +397,41 @@ def main():
         logger.error("❌ Error al conectar con MongoDB")
         sys.exit(1)
     
-    # Get missing months
-    logger.info("🔍 Buscando meses pendientes...")
-    missing_months = get_missing_months(
+    # Get missing dates
+    logger.info("🔍 Buscando fechas pendientes...")
+    missing_dates = get_missing_dates(
         mongo_client,
         BACKFILL_CONFIG['start_date'],
         BACKFILL_CONFIG['end_date']
     )
     
-    if not missing_months:
+    if not missing_dates:
         logger.info("")
         logger.info("=" * 70)
         logger.info("  🎉 ¡BACKFILL COMPLETO!")
         logger.info("=" * 70)
-        logger.info("✅ Todos los meses están completos en MongoDB")
-        logger.info("📌 Puedes PAUSAR o ELIMINAR este Cron Job en Render.com")
+        logger.info("✅ Todas las fechas están completas en MongoDB")
+        logger.info(f"   Rango: {BACKFILL_CONFIG['start_date']} a {BACKFILL_CONFIG['end_date']}")
+        logger.info("📌 Este workflow puede ser DESACTIVADO")
         logger.info("=" * 70)
         mongo_client.close()
         sys.exit(0)
     
-    logger.info(f"📊 Meses pendientes: {len(missing_months)}")
-    logger.info(f"   {', '.join(missing_months)}")
+    total_pending = len(missing_dates)
+    logger.info(f"📊 Fechas pendientes: {total_pending}")
+    logger.info(f"   Primera: {missing_dates[0]}")
+    logger.info(f"   Última: {missing_dates[-1]}")
+    
+    # Process batch (limited by max_dates_per_run)
+    batch_size = min(BACKFILL_CONFIG['max_dates_per_run'], total_pending)
+    dates_to_process = missing_dates[:batch_size]
+    
     logger.info("")
-    
-    # Process first pending month
-    target_month = missing_months[0]
     logger.info("=" * 70)
-    logger.info(f"  📅 PROCESANDO MES: {target_month}")
+    logger.info(f"  📅 PROCESANDO LOTE: {len(dates_to_process)} FECHAS")
     logger.info("=" * 70)
-    logger.info("")
-    
-    # Get all dates in the month
-    month_dates = get_month_dates(target_month)
-    
-    # Filter dates within backfill range
-    start_date = BACKFILL_CONFIG['start_date']
-    end_date = BACKFILL_CONFIG['end_date']
-    valid_dates = [d for d in month_dates if start_date <= d <= end_date]
-    
-    logger.info(f"📆 Fechas a procesar: {len(valid_dates)}")
-    logger.info(f"   Desde: {valid_dates[0]}")
-    logger.info(f"   Hasta: {valid_dates[-1]}")
+    logger.info(f"Desde: {dates_to_process[0]}")
+    logger.info(f"Hasta: {dates_to_process[-1]}")
     logger.info("")
     
     # Track progress
@@ -480,11 +440,11 @@ def main():
     failed = 0
     
     # Process each date
-    for i, date_str in enumerate(valid_dates, 1):
-        logger.info(f"--- Fecha {i}/{len(valid_dates)} ---")
+    for i, date_str in enumerate(dates_to_process, 1):
+        logger.info(f"--- Fecha {i}/{len(dates_to_process)} ---")
         
-        # Renew token every 10 dates
-        if i > 1 and i % 10 == 1:
+        # Renew token every 5 dates
+        if i > 1 and i % 5 == 1:
             logger.info("🔄 Renovando token de autenticación...")
             if not api_client.authenticate():
                 logger.error("❌ Error al renovar token")
@@ -502,29 +462,30 @@ def main():
         logger.info("")
         
         # Wait before next date (except last one)
-        if i < len(valid_dates):
+        if i < len(dates_to_process):
             logger.info(f"⏳ Esperando {CONFIG['delay_between_dates']}s antes de la siguiente fecha...")
             time.sleep(CONFIG['delay_between_dates'])
     
     # Summary
     logger.info("")
     logger.info("=" * 70)
-    logger.info(f"  RESUMEN - MES {target_month}")
+    logger.info(f"  RESUMEN DE LOTE")
     logger.info("=" * 70)
     logger.info(f"✅ Procesadas exitosamente: {successful}/{processed} fechas")
     if failed > 0:
-        logger.info(f"❌ Fallidas: {failed}/{processed} fechas")
-    logger.info("")
+        logger.info(f"❌ Fallidas o parciales: {failed}/{processed} fechas")
     
-    remaining_months = len(missing_months) - 1
-    if remaining_months > 0:
-        logger.info(f"📊 Meses restantes: {remaining_months}")
-        logger.info(f"   {', '.join(missing_months[1:])}")
+    remaining = total_pending - processed
+    if remaining > 0:
         logger.info("")
-        logger.info("🔄 El próximo mes se procesará en la siguiente ejecución diaria")
+        logger.info(f"📊 Fechas restantes totales: {remaining}")
+        logger.info(f"   Próxima fecha: {missing_dates[processed]}")
+        logger.info("")
+        logger.info("🔄 La próxima ejecución continuará automáticamente mañana")
     else:
-        logger.info("🎉 ¡Este era el último mes pendiente!")
-        logger.info("📌 En la próxima ejecución se confirmará que todo está completo")
+        logger.info("")
+        logger.info("🎉 ¡Última fecha pendiente procesada!")
+        logger.info("📌 Próxima ejecución verificará si hay nuevos pendientes")
     
     logger.info("")
     logger.info(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
