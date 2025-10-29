@@ -2,9 +2,9 @@ name: Laudus Backfill Auto (Jul-Sep 2025)
 
 on:
   schedule:
-    # Ejecutar SÁBADOS y DOMINGOS a las 22:00 Chile (01:00 UTC)
-    # Solo fines de semana para evitar conflictos con el workflow diario
-    - cron: '0 1 * * 6,0'  # Sábado(6) y Domingo(0) solamente
+    # Ejecutar DIARIAMENTE a las 22:00 Chile (01:00 UTC)
+    # Procesará 7 fechas por día hasta completar Jul-Sep 2025
+    - cron: '0 1 * * *'  # Todos los días
   
   
   # Permitir ejecución manual desde GitHub UI
