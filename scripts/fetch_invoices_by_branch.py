@@ -131,7 +131,8 @@ class LaudusAPIClient:
                 logger.info(f"Retrieved data for {len(data)} branches")
                 total_net = sum(branch.get('net', 0) for branch in data)
                 logger.info(f"   Total Net: ${total_net:,.2f}")
-                logger.info(f"   Branches: {', '.join(b.get('branch', 'N/A') for b in data[:5])}")
+                branch_names = [str(b.get('branch', 'N/A') or 'N/A') for b in data[:5]]
+                logger.info(f"   Branches: {', '.join(branch_names)}")
                 if len(data) > 5:
                     logger.info(f"   ... and {len(data) - 5} more")
             else:
@@ -189,24 +190,33 @@ class MongoDBClient:
             date_range_key = f"{date_from}_{date_to}"
             logger.info(f"Saving invoices by branch for {date_range_key} to MongoDB...")
             
+            # Clean up branch data - ensure branch names are not null
+            cleaned_branches = []
+            for branch in branches:
+                branch_copy = branch.copy()
+                if not branch_copy.get('branch'):
+                    branch_copy['branch'] = 'Sin Sucursal'
+                    logger.warning(f"Branch with null name found, renamed to 'Sin Sucursal'")
+                cleaned_branches.append(branch_copy)
+            
             # Calculate totals
-            total_net = sum(branch.get('net', 0) for branch in branches)
-            total_margin = sum(branch.get('margin', 0) for branch in branches)
-            total_discounts = sum(branch.get('discounts', 0) for branch in branches)
-            avg_margin_pct = sum(branch.get('marginPercentage', 0) for branch in branches) / len(branches) if branches else 0
-            avg_discount_pct = sum(branch.get('discountsPercentage', 0) for branch in branches) / len(branches) if branches else 0
+            total_net = sum(branch.get('net', 0) for branch in cleaned_branches)
+            total_margin = sum(branch.get('margin', 0) for branch in cleaned_branches)
+            total_discounts = sum(branch.get('discounts', 0) for branch in cleaned_branches)
+            avg_margin_pct = sum(branch.get('marginPercentage', 0) for branch in cleaned_branches) / len(cleaned_branches) if cleaned_branches else 0
+            avg_discount_pct = sum(branch.get('discountsPercentage', 0) for branch in cleaned_branches) / len(cleaned_branches) if cleaned_branches else 0
             
             document = {
                 'dateRange': date_range_key,
                 'startDate': date_from,
                 'endDate': date_to,
-                'branches': branches,
+                'branches': cleaned_branches,
                 'totalNet': total_net,
                 'totalMargin': total_margin,
                 'totalDiscounts': total_discounts,
                 'avgMarginPercentage': avg_margin_pct,
                 'avgDiscountPercentage': avg_discount_pct,
-                'branchCount': len(branches),
+                'branchCount': len(cleaned_branches),
                 'insertedAt': datetime.utcnow()
             }
             
@@ -223,7 +233,7 @@ class MongoDBClient:
                 logger.info(f"Updated existing document for {date_range_key}")
             
             logger.info(f"   Total Net: ${total_net:,.2f}")
-            logger.info(f"   Branch Count: {len(branches)}")
+            logger.info(f"   Branch Count: {len(cleaned_branches)}")
             
             return True
             
