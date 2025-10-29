@@ -1,0 +1,57 @@
+name: Laudus Invoices by Branch - Fetch Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: 'Fecha inicio (YYYY-MM-DD)'
+        required: true
+        default: '2025-01-01'
+        type: string
+      end_date:
+        description: 'Fecha fin (YYYY-MM-DD)'
+        required: true
+        default: '2025-10-31'
+        type: string
+
+jobs:
+  fetch-invoices-by-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          cd scripts
+          pip install -r requirements.txt
+      
+      - name: Fetch invoices by branch
+        env:
+          LAUDUS_API_URL: 'https://api.laudus.cl'
+          LAUDUS_USERNAME: 'API'
+          LAUDUS_PASSWORD: ${{ secrets.LAUDUS_PASSWORD }}
+          LAUDUS_COMPANY_VAT: ${{ secrets.LAUDUS_COMPANY_VAT }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DATABASE: 'laudus_data'
+          BRANCH_START_DATE: ${{ inputs.start_date }}
+          BRANCH_END_DATE: ${{ inputs.end_date }}
+        run: |
+          cd scripts
+          python fetch_invoices_by_branch.py
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoices-branch-logs-${{ inputs.start_date }}-to-${{ inputs.end_date }}
+          path: scripts/logs/*.log
+          retention-days: 30
