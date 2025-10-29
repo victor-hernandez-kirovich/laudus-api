@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Laudus Invoices by Branch Data Fetcher
-Fetches sales invoices aggregated by branch and stores them in MongoDB
+Fetches sales invoices aggregated by branch for each month and stores them in MongoDB
 """
 
 import os
@@ -10,6 +10,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional
+from calendar import monthrange
 import time
 
 import requests
@@ -184,11 +185,11 @@ class MongoDBClient:
             logger.error(f"MongoDB connection failed: {e}")
             return False
     
-    def save_invoices(self, date_from: str, date_to: str, branches: list) -> bool:
-        """Save invoices by branch data to MongoDB"""
+    def save_invoices(self, year: int, month: int, date_from: str, date_to: str, branches: list) -> bool:
+        """Save invoices by branch data to MongoDB for a specific month"""
         try:
-            date_range_key = f"{date_from}_{date_to}"
-            logger.info(f"Saving invoices by branch for {date_range_key} to MongoDB...")
+            month_key = f"{year}-{month:02d}"
+            logger.info(f"Saving invoices by branch for {month_key} to MongoDB...")
             
             # Clean up branch data - ensure branch names are not null
             cleaned_branches = []
@@ -206,8 +207,18 @@ class MongoDBClient:
             avg_margin_pct = sum(branch.get('marginPercentage', 0) for branch in cleaned_branches) / len(cleaned_branches) if cleaned_branches else 0
             avg_discount_pct = sum(branch.get('discountsPercentage', 0) for branch in cleaned_branches) / len(cleaned_branches) if cleaned_branches else 0
             
+            # Month name in Spanish
+            month_names = {
+                1: 'enero', 2: 'febrero', 3: 'marzo', 4: 'abril',
+                5: 'mayo', 6: 'junio', 7: 'julio', 8: 'agosto',
+                9: 'septiembre', 10: 'octubre', 11: 'noviembre', 12: 'diciembre'
+            }
+            
             document = {
-                'dateRange': date_range_key,
+                'month': month_key,
+                'year': year,
+                'monthNumber': month,
+                'monthName': month_names[month],
                 'startDate': date_from,
                 'endDate': date_to,
                 'branches': cleaned_branches,
@@ -222,15 +233,15 @@ class MongoDBClient:
             
             # Upsert (update if exists, insert if not)
             result = self.collection.update_one(
-                {'dateRange': date_range_key},
+                {'month': month_key},
                 {'$set': document},
                 upsert=True
             )
             
             if result.upserted_id:
-                logger.info(f"Inserted new document for {date_range_key}")
+                logger.info(f"Inserted new document for {month_key}")
             else:
-                logger.info(f"Updated existing document for {date_range_key}")
+                logger.info(f"Updated existing document for {month_key}")
             
             logger.info(f"   Total Net: ${total_net:,.2f}")
             logger.info(f"   Branch Count: {len(cleaned_branches)}")
@@ -251,7 +262,7 @@ class MongoDBClient:
 def main():
     """Main execution function"""
     logger.info("=" * 80)
-    logger.info("Laudus Invoices by Branch Fetcher")
+    logger.info("Laudus Invoices by Branch Fetcher (Monthly)")
     logger.info("=" * 80)
     
     # Validate configuration
@@ -263,10 +274,14 @@ def main():
         sys.exit(1)
     
     # Get date range from environment
-    date_from = os.getenv('BRANCH_START_DATE', '2025-01-01')
-    date_to = os.getenv('BRANCH_END_DATE', '2025-10-31')
+    start_year = int(os.getenv('START_YEAR', '2025'))
+    start_month = int(os.getenv('START_MONTH', '1'))
+    end_year = int(os.getenv('END_YEAR', '2025'))
+    end_month = int(os.getenv('END_MONTH', '10'))
+    skip_existing = os.getenv('SKIP_EXISTING', 'false').lower() == 'true'
     
-    logger.info(f"Date range: {date_from} to {date_to}")
+    logger.info(f"Date range: {start_year}-{start_month:02d} to {end_year}-{end_month:02d}")
+    logger.info(f"Skip existing: {skip_existing}")
     
     # Initialize clients
     api_client = LaudusAPIClient()
@@ -282,42 +297,91 @@ def main():
         logger.error("Failed to connect to MongoDB. Exiting.")
         sys.exit(1)
     
-    # Fetch data with retry logic
-    retry_count = 0
-    success = False
-    data = None
+    # Generate list of months to process
+    months_to_process = []
+    current_year = start_year
+    current_month = start_month
     
-    while retry_count < CONFIG['max_retries'] and not success:
-        if retry_count > 0:
-            logger.info(f"Retry attempt {retry_count}/{CONFIG['max_retries']}")
-            time.sleep(60)  # Wait 1 minute before retry
+    while (current_year < end_year) or (current_year == end_year and current_month <= end_month):
+        months_to_process.append((current_year, current_month))
+        current_month += 1
+        if current_month > 12:
+            current_month = 1
+            current_year += 1
+    
+    logger.info(f"Total months to process: {len(months_to_process)}")
+    logger.info("")
+    
+    # Process each month
+    successful_months = 0
+    failed_months = []
+    
+    for year, month in months_to_process:
+        month_key = f"{year}-{month:02d}"
         
-        # Fetch invoices by branch
-        data = api_client.fetch_invoices_by_branch(date_from, date_to)
+        # Check if already exists and skip if requested
+        if skip_existing and db_client.collection.find_one({'month': month_key}):
+            logger.info(f"⏭️  Skipping {month_key} (already exists)")
+            successful_months += 1
+            continue
         
-        if data is not None and isinstance(data, list):
-            # Save to MongoDB
-            if db_client.save_invoices(date_from, date_to, data):
-                success = True
-                logger.info("Successfully processed invoices by branch")
+        logger.info("-" * 80)
+        logger.info(f"📅 Processing {month_key}")
+        logger.info("-" * 80)
+        
+        # Calculate date range for the month
+        last_day = monthrange(year, month)[1]
+        date_from = f"{year}-{month:02d}-01"
+        date_to = f"{year}-{month:02d}-{last_day:02d}"
+        
+        # Fetch data with retry logic
+        retry_count = 0
+        success = False
+        data = None
+        
+        while retry_count < CONFIG['max_retries'] and not success:
+            if retry_count > 0:
+                logger.info(f"Retry attempt {retry_count}/{CONFIG['max_retries']}")
+                time.sleep(60)  # Wait 1 minute before retry
+            
+            # Fetch invoices by branch
+            data = api_client.fetch_invoices_by_branch(date_from, date_to)
+            
+            if data is not None and isinstance(data, list):
+                # Save to MongoDB
+                if db_client.save_invoices(year, month, date_from, date_to, data):
+                    success = True
+                    successful_months += 1
+                    logger.info(f"✅ Successfully processed {month_key}")
+                else:
+                    retry_count += 1
             else:
                 retry_count += 1
-        else:
-            retry_count += 1
-    
-    if not success:
-        logger.error(f"Failed to process invoices by branch after {CONFIG['max_retries']} retries")
-        db_client.close()
-        sys.exit(1)
+        
+        if not success:
+            logger.error(f"❌ Failed to process {month_key} after {CONFIG['max_retries']} retries")
+            failed_months.append(month_key)
+        
+        # Delay between months to avoid rate limiting
+        if months_to_process[-1] != (year, month):  # Don't delay after last month
+            logger.info("Waiting 5 seconds before next month...")
+            time.sleep(5)
     
     # Summary
     logger.info("")
     logger.info("=" * 80)
     logger.info("EXECUTION SUMMARY")
     logger.info("=" * 80)
-    logger.info(f"Status: SUCCESS")
-    logger.info(f"Date Range: {date_from} to {date_to}")
-    logger.info(f"Branches: {len(data) if data else 0}")
+    logger.info(f"Total months: {len(months_to_process)}")
+    logger.info(f"Successful: {successful_months}")
+    logger.info(f"Failed: {len(failed_months)}")
+    
+    if failed_months:
+        logger.error(f"Failed months: {', '.join(failed_months)}")
+        db_client.close()
+        sys.exit(1)
+    
+    logger.info("Status: SUCCESS ✅")
     logger.info("=" * 80)
     
     # Cleanup
