@@ -2,11 +2,11 @@ name: Laudus Balance Sheet Daily Automation
 
 on:
   schedule:
-    # Ejecutar diariamente a las 10:00 PM Chile
+    # Ejecutar de LUNES a VIERNES a las 22:00 Chile (01:00 UTC)
     # Horario verano (Sep-Abr): UTC-3 → 22:00 CLT = 01:00 UTC
     # Horario invierno (Abr-Sep): UTC-4 → 22:00 CLT = 02:00 UTC
-    # Nota: Ajustar manualmente entre '0 1 * * *' (verano) y '0 2 * * *' (invierno)
-    - cron: '0 1 * * *'
+    # Nota: Ajustar manualmente entre '0 1 * * 1-5' (verano) y '0 2 * * 1-5' (invierno)
+    - cron: '0 1 * * 1-5'  # Lunes(1) a Viernes(5) solamente
   
   # Permitir ejecución manual desde GitHub UI
   workflow_dispatch:
