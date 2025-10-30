@@ -32,6 +32,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Month names in Spanish
+MONTH_NAMES = {
+    1: 'Enero',
+    2: 'Febrero',
+    3: 'Marzo',
+    4: 'Abril',
+    5: 'Mayo',
+    6: 'Junio',
+    7: 'Julio',
+    8: 'Agosto',
+    9: 'Septiembre',
+    10: 'Octubre',
+    11: 'Noviembre',
+    12: 'Diciembre'
+}
+
 # Configuration from environment variables
 CONFIG = {
     'api_url': os.getenv('LAUDUS_API_URL', 'https://api.laudus.cl'),
@@ -207,7 +223,7 @@ class MongoDBClient:
                 'month': month_key,
                 'year': year,
                 'monthNumber': month,
-                'monthName': month_data.get('month', month_key),
+                'monthName': MONTH_NAMES.get(month, f'Mes {month}'),
                 'total': month_data.get('total', 0),
                 'returns': month_data.get('returns', 0),
                 'returnsPercentage': month_data.get('returnsPercentage', 0),

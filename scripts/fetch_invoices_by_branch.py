@@ -32,6 +32,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Month names in Spanish
+MONTH_NAMES = {
+    1: 'Enero',
+    2: 'Febrero',
+    3: 'Marzo',
+    4: 'Abril',
+    5: 'Mayo',
+    6: 'Junio',
+    7: 'Julio',
+    8: 'Agosto',
+    9: 'Septiembre',
+    10: 'Octubre',
+    11: 'Noviembre',
+    12: 'Diciembre'
+}
+
 # Configuration from environment variables
 CONFIG = {
     'api_url': os.getenv('LAUDUS_API_URL', 'https://api.laudus.cl'),
@@ -191,34 +207,42 @@ class MongoDBClient:
             month_key = f"{year}-{month:02d}"
             logger.info(f"Saving invoices by branch for {month_key} to MongoDB...")
             
-            # Clean up branch data - ensure branch names are not null
+            # Calculate totals first (needed for percentages)
+            total_net = sum(branch.get('net', 0) for branch in branches)
+            total_margin = sum(branch.get('margin', 0) for branch in branches)
+            total_discounts = sum(branch.get('discounts', 0) for branch in branches)
+            
+            # Clean up branch data and calculate missing percentages
             cleaned_branches = []
             for branch in branches:
                 branch_copy = branch.copy()
+                
+                # Fix null branch names
                 if not branch_copy.get('branch'):
                     branch_copy['branch'] = 'Sin Sucursal'
                     logger.warning(f"Branch with null name found, renamed to 'Sin Sucursal'")
+                
+                # Calculate netPercentage if missing or 0
+                if branch_copy.get('netPercentage', 0) == 0 and total_net > 0:
+                    branch_copy['netPercentage'] = (branch_copy.get('net', 0) / total_net) * 100
+                
+                # Calculate marginPercentage if missing or 0
+                if branch_copy.get('marginPercentage', 0) == 0 and branch_copy.get('net', 0) > 0:
+                    branch_copy['marginPercentage'] = (branch_copy.get('margin', 0) / branch_copy.get('net', 0)) * 100
+                
+                # Keep discountsPercentage as is (seems to be coming correctly)
+                
                 cleaned_branches.append(branch_copy)
             
-            # Calculate totals
-            total_net = sum(branch.get('net', 0) for branch in cleaned_branches)
-            total_margin = sum(branch.get('margin', 0) for branch in cleaned_branches)
-            total_discounts = sum(branch.get('discounts', 0) for branch in cleaned_branches)
+            # Calculate averages
             avg_margin_pct = sum(branch.get('marginPercentage', 0) for branch in cleaned_branches) / len(cleaned_branches) if cleaned_branches else 0
             avg_discount_pct = sum(branch.get('discountsPercentage', 0) for branch in cleaned_branches) / len(cleaned_branches) if cleaned_branches else 0
-            
-            # Month name in Spanish
-            month_names = {
-                1: 'enero', 2: 'febrero', 3: 'marzo', 4: 'abril',
-                5: 'mayo', 6: 'junio', 7: 'julio', 8: 'agosto',
-                9: 'septiembre', 10: 'octubre', 11: 'noviembre', 12: 'diciembre'
-            }
             
             document = {
                 'month': month_key,
                 'year': year,
                 'monthNumber': month,
-                'monthName': month_names[month],
+                'monthName': MONTH_NAMES.get(month, f'Mes {month}'),
                 'startDate': date_from,
                 'endDate': date_to,
                 'branches': cleaned_branches,
@@ -244,7 +268,13 @@ class MongoDBClient:
                 logger.info(f"Updated existing document for {month_key}")
             
             logger.info(f"   Total Net: ${total_net:,.2f}")
+            logger.info(f"   Total Margin: ${total_margin:,.2f} (Avg: {avg_margin_pct:.2f}%)")
+            logger.info(f"   Total Discounts: ${total_discounts:,.2f} (Avg: {avg_discount_pct:.2f}%)")
             logger.info(f"   Branch Count: {len(cleaned_branches)}")
+            
+            # Log branch details
+            for branch in cleaned_branches[:3]:  # Show first 3
+                logger.info(f"   - {branch['branch']}: Net ${branch['net']:,.0f} ({branch['netPercentage']:.1f}%), Margin {branch['marginPercentage']:.1f}%")
             
             return True
             

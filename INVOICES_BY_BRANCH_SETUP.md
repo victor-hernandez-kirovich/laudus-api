@@ -23,12 +23,6 @@ Sistema automatizado para extraer y visualizar datos de facturas agregados por s
    - Query opcional: `?dateRange=2025-01-01_2025-10-31`
    - Retorna datos desde MongoDB
 
-4. **Dashboard**: `app/dashboard/invoices/branch/page.tsx`
-   - Vista interactiva con métricas resumidas
-   - Tabla de sucursales ordenada por ventas
-   - Detalles expandibles por sucursal
-   - Top 5 sucursales por ventas y margen
-
 ## Estructura de Datos
 
 ### MongoDB Collection: `invoices_by_branch`
