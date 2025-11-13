@@ -1,9 +1,9 @@
-name: Laudus Backfill Auto (Jul-Sep 2025)
+name: Laudus Backfill Auto (Feb-Apr 2025)
 
 on:
   schedule:
     # Ejecutar DIARIAMENTE a las 22:00 Chile (01:00 UTC)
-    # Procesará 7 fechas por día hasta completar Jul-Sep 2025
+    # Procesará 7 fechas por día hasta completar Feb-Apr 2025
     - cron: '0 1 * * *'  # Todos los días
   
   
@@ -38,8 +38,8 @@ jobs:
           LAUDUS_COMPANY_VAT: ${{ secrets.LAUDUS_COMPANY_VAT }}
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           MONGODB_DATABASE: laudus_data
-          BACKFILL_START_DATE: "2025-07-01"
-          BACKFILL_END_DATE: "2025-09-30"
+          BACKFILL_START_DATE: "2025-02-01"
+          BACKFILL_END_DATE: "2025-04-30"
           MAX_DATES_PER_RUN: "7"
           TIMEOUT_SECONDS: "1800"
           DELAY_BETWEEN_ENDPOINTS: "300"
