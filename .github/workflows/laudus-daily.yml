@@ -1,14 +1,12 @@
-name: Laudus Balance Sheet Daily Automation
+name: Laudus Balance Sheet Monthly Automation (Last Day Only)
 
 on:
-  # TEMPORALMENTE DESACTIVADO mientras corre el backfill Jul-Sep 2025
-  # Se reactivará aproximadamente el 11 de Noviembre 2025
-  # schedule:
-  #   # Ejecutar de LUNES a VIERNES a las 22:00 Chile (01:00 UTC)
-  #   # Horario verano (Sep-Abr): UTC-3 → 22:00 CLT = 01:00 UTC
-  #   # Horario invierno (Abr-Sep): UTC-4 → 22:00 CLT = 02:00 UTC
-  #   # Nota: Ajustar manualmente entre '0 1 * * 1-5' (verano) y '0 2 * * 1-5' (invierno)
-  #   - cron: '0 1 * * 1-5'  # Lunes(1) a Viernes(5) solamente
+  # Ejecutar DIARIAMENTE a las 22:00 Chile (01:00 UTC)
+  # Pero el workflow solo descargará datos si es el último día del mes
+  # Horario verano (Sep-Abr): UTC-3 → 22:00 CLT = 01:00 UTC
+  # Horario invierno (Abr-Sep): UTC-4 → 22:00 CLT = 02:00 UTC
+  schedule:
+    - cron: '0 1 * * *'  # Todos los días a las 01:00 UTC (verano Chile)
   
   # Permitir ejecución manual desde GitHub UI
   workflow_dispatch:
@@ -22,18 +20,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
+      - name: Check if last day of month
+        id: check_date
+        run: |
+          # Obtener fecha de hoy y mañana
+          TODAY=$(date +%Y-%m-%d)
+          TOMORROW=$(date -d "+1 day" +%Y-%m-%d)
+          TODAY_MONTH=$(date +%m)
+          TOMORROW_MONTH=$(date -d "+1 day" +%m)
+          TODAY_DAY=$(date +%d)
+          
+          echo "📅 Hoy: $TODAY (día $TODAY_DAY)"
+          echo "📅 Mañana: $TOMORROW"
+          
+          # Si el mes de mañana es diferente, hoy es el último día del mes
+          if [ "$TODAY_MONTH" != "$TOMORROW_MONTH" ]; then
+            echo "is_last_day=true" >> $GITHUB_OUTPUT
+            echo "target_date=$TODAY" >> $GITHUB_OUTPUT
+            echo "✅ HOY ES EL ÚLTIMO DÍA DEL MES: $TODAY"
+            echo "🚀 Procediendo con la descarga de datos..."
+          else
+            echo "is_last_day=false" >> $GITHUB_OUTPUT
+            echo "⏭️  Hoy NO es el último día del mes: $TODAY"
+            echo "💤 Saltando descarga (los datos son acumulativos)"
+          fi
+      
       - name: Setup Python 3.13
+        if: steps.check_date.outputs.is_last_day == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: 'pip'
       
       - name: Install dependencies
+        if: steps.check_date.outputs.is_last_day == 'true'
         run: |
           pip install --upgrade pip
           pip install -r scripts/requirements.txt
       
-      - name: Fetch Balance Sheet Data
+      - name: Fetch Balance Sheet Data (Last Day of Month)
+        if: steps.check_date.outputs.is_last_day == 'true'
         env:
           LAUDUS_API_URL: ${{ secrets.LAUDUS_API_URL }}
           LAUDUS_USERNAME: ${{ secrets.LAUDUS_USERNAME }}
@@ -41,7 +67,9 @@ jobs:
           LAUDUS_COMPANY_VAT: ${{ secrets.LAUDUS_COMPANY_VAT }}
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
-        run: python scripts/fetch_balancesheet.py
+        run: |
+          echo "📊 Descargando balances para: ${{ steps.check_date.outputs.target_date }}"
+          python scripts/fetch_balancesheet.py
       
       - name: Upload logs as artifacts
         if: always()
