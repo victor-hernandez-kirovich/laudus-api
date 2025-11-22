@@ -9,7 +9,7 @@ import sys
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import argparse
 
@@ -216,7 +216,7 @@ class MongoDBClient:
                 'date': date_str,
                 'endpointType': endpoint_name,
                 'recordCount': len(data),
-                'insertedAt': datetime.utcnow(),
+                'insertedAt': datetime.now(timezone.utc),
                 'loadSource': 'manual',
                 'data': data
             }
