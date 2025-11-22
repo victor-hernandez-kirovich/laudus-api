@@ -5,10 +5,14 @@
   "description": "Integración con API de Laudus ERP para extracción de datos y visualizaciones",
   "main": "src/index.js",
   "scripts": {
-    "dev": "node examples/balance-totals.js",
-    "dev:balance-standard": "node examples/balance-standard.js",
-    "dev:balance-8columns": "node examples/balance-8columns.js",
-    "dev:sales": "node examples/sales-customers.js",
+    "dev": "echo 'Use npm run script:<nombre> para ejecutar scripts de Python en /scripts'",
+    "script:balance": "cd scripts && python fetch_balancesheet.py",
+    "script:balance-manual": "cd scripts && python fetch_balancesheet_manual.py",
+    "script:invoices": "cd scripts && python fetch_invoices_monthly.py",
+    "script:invoices-branch": "cd scripts && python fetch_invoices_by_branch.py",
+    "script:invoices-salesman": "cd scripts && python fetch_invoices_by_salesman.py",
+    "script:generate-balance": "cd scripts && python generate_balance_general.py",
+    "script:list-dates": "cd scripts && python list_dates.py",
     "vercel:dev": "vercel dev",
     "deploy": "vercel --prod",
     "deploy:preview": "vercel"
