@@ -13,7 +13,7 @@ from pymongo.errors import PyMongoError
 MONGODB_URI = os.getenv('MONGODB_URI')
 MONGODB_DATABASE = os.getenv('MONGODB_DATABASE', 'laudus_data')
 
-COLLECTIONS = ['balance_totals', 'balance_standard', 'balance_8columns']
+COLLECTIONS = ['balance_8columns']
 
 def main():
     print("=" * 60)

@@ -47,16 +47,6 @@ CONFIG = {
 # Endpoints configuration
 ENDPOINTS = [
     {
-        'name': 'totals',
-        'path': '/accounting/balanceSheet/totals',
-        'collection': 'balance_totals'
-    },
-    {
-        'name': 'standard',
-        'path': '/accounting/balanceSheet/standard',
-        'collection': 'balance_standard'
-    },
-    {
         'name': '8Columns',
         'path': '/accounting/balanceSheet/8Columns',
         'collection': 'balance_8columns'

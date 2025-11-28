@@ -41,23 +41,11 @@ CONFIG = {
     'max_retries': 20,  # Maximum retry attempts per endpoint
 }
 
-# Endpoints configuration
-ENDPOINTS = {
-    'totals': {
-        'name': 'totals',
-        'path': '/accounting/balanceSheet/totals',
-        'collection': 'balance_totals'
-    },
-    'standard': {
-        'name': 'standard',
-        'path': '/accounting/balanceSheet/standard',
-        'collection': 'balance_standard'
-    },
-    '8columns': {
-        'name': '8Columns',
-        'path': '/accounting/balanceSheet/8Columns',
-        'collection': 'balance_8columns'
-    }
+# Endpoint configuration - Only 8 Columns
+ENDPOINT = {
+    'name': '8Columns',
+    'path': '/accounting/balanceSheet/8Columns',
+    'collection': 'balance_8columns'
 }
 
 
@@ -245,22 +233,18 @@ class MongoDBClient:
 def main():
     """Main execution function with intelligent retry logic"""
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Fetch Laudus balance sheet data manually')
+    parser = argparse.ArgumentParser(description='Fetch Laudus balance sheet data manually (8 Columns only)')
     parser.add_argument('--date', required=True, help='Target date in YYYY-MM-DD format')
-    parser.add_argument('--endpoints', nargs='+', required=True, 
-                       choices=['totals', 'standard', '8columns'],
-                       help='Endpoints to fetch (totals, standard, 8columns)')
     
     args = parser.parse_args()
     
     target_date = args.date
-    selected_endpoints = [ENDPOINTS[ep] for ep in args.endpoints]
     
     logger.info("=" * 60)
-    logger.info("  CARGA MANUAL DE BALANCE SHEET")
+    logger.info("  CARGA MANUAL DE BALANCE SHEET (8 COLUMNAS)")
     logger.info("=" * 60)
     logger.info(f"Fecha: {target_date}")
-    logger.info(f"Endpoints: {', '.join([ep['name'] for ep in selected_endpoints])}")
+    logger.info(f"Endpoint: {ENDPOINT['name']}")
     logger.info("")
     
     # Validate configuration
@@ -283,14 +267,14 @@ def main():
         logger.error("Error al conectar con MongoDB")
         sys.exit(1)
     
-    # Track completion status for each endpoint
-    completed = {endpoint['name']: False for endpoint in selected_endpoints}
-    results = []
+    # Track completion status
+    completed = False
+    result = {'endpoint': ENDPOINT['name'], 'success': False, 'records': 0}
     attempt = 0
     max_attempts = CONFIG['max_retries']
     
     # Main retry loop
-    while attempt < max_attempts and not all(completed.values()):
+    while attempt < max_attempts and not completed:
         attempt += 1
         logger.info(f"--- Intento #{attempt} ---")
         
@@ -302,85 +286,39 @@ def main():
                 time.sleep(CONFIG['retry_delay'])
                 continue
         
-        # Process each endpoint
-        for i, endpoint in enumerate(selected_endpoints):
-            if completed[endpoint['name']]:
-                logger.info(f"Omitiendo {endpoint['name']} (ya completado)")
-                continue
-            
-            # Add delay between endpoints (except first one in first attempt)
-            if attempt == 1 and i > 0:
-                logger.info(f"Esperando {CONFIG['endpoint_delay']}s antes del siguiente endpoint...")
-                time.sleep(CONFIG['endpoint_delay'])
-            
-            # Fetch data
-            logger.info(f"Obteniendo {endpoint['name']}...")
-            data = api_client.fetch_balance_sheet(endpoint, target_date)
-            
-            if data is not None:
-                # Save to MongoDB
-                success = mongo_client.save_data(
-                    endpoint['collection'],
-                    data,
-                    endpoint['name'],
-                    target_date
-                )
-                
-                if success:
-                    completed[endpoint['name']] = True
-                    logger.info(f"[OK] {endpoint['name']} completado exitosamente")
-                    
-                    # Update or add result
-                    result_exists = False
-                    for r in results:
-                        if r['endpoint'] == endpoint['name']:
-                            r['success'] = True
-                            r['records'] = len(data)
-                            result_exists = True
-                            break
-                    
-                    if not result_exists:
-                        results.append({
-                            'endpoint': endpoint['name'],
-                            'success': True,
-                            'records': len(data)
-                        })
-                else:
-                    logger.error(f"[FAIL] Error al guardar {endpoint['name']} en MongoDB")
-            else:
-                logger.error(f"[FAIL] Error al obtener {endpoint['name']}")
-            
-            logger.info("")
+        # Fetch data
+        logger.info(f"Obteniendo {ENDPOINT['name']}...")
+        data = api_client.fetch_balance_sheet(ENDPOINT, target_date)
         
-        # Check if all completed
-        if all(completed.values()):
-            logger.info("=" * 60)
-            logger.info("  [OK] TODOS LOS ENDPOINTS COMPLETADOS")
-            logger.info("=" * 60)
-            break
+        if data is not None:
+            # Save to MongoDB
+            success = mongo_client.save_data(
+                ENDPOINT['collection'],
+                data,
+                ENDPOINT['name'],
+                target_date
+            )
+            
+            if success:
+                completed = True
+                result['success'] = True
+                result['records'] = len(data)
+                logger.info(f"[OK] {ENDPOINT['name']} completado exitosamente")
+                logger.info("=" * 60)
+                logger.info("  [OK] CARGA COMPLETADA")
+                logger.info("=" * 60)
+                break
+            else:
+                logger.error(f"[FAIL] Error al guardar {ENDPOINT['name']} en MongoDB")
+        else:
+            logger.error(f"[FAIL] Error al obtener {ENDPOINT['name']}")
+        
+        logger.info("")
         
         # Wait before next attempt
-        if attempt < max_attempts:
-            pending = [name for name, status in completed.items() if not status]
-            logger.info(f"Pendientes: {', '.join(pending)}")
+        if attempt < max_attempts and not completed:
             logger.info(f"Esperando {CONFIG['retry_delay']}s antes de reintentar...")
             time.sleep(CONFIG['retry_delay'])
-    
-    # Add failed endpoints to results
-    for endpoint in selected_endpoints:
-        if not completed[endpoint['name']]:
-            result_exists = False
-            for r in results:
-                if r['endpoint'] == endpoint['name']:
-                    result_exists = True
-                    break
-            
-            if not result_exists:
-                results.append({
-                    'endpoint': endpoint['name'],
-                    'success': False,
-                    'records': 0
-                })
     
     # Final summary
     logger.info("")
@@ -388,15 +326,8 @@ def main():
     logger.info("  RESUMEN")
     logger.info("=" * 60)
     
-    for result in results:
-        status_icon = "[OK]" if result['success'] else "[FAIL]"
-        logger.info(f"{status_icon} {result['endpoint']}: {result['records']} registros")
-    
-    success_count = sum(1 for r in results if r['success'])
-    total_count = len(results)
-    
-    logger.info("")
-    logger.info(f"Total: {success_count}/{total_count} endpoints completados")
+    status_icon = "[OK]" if result['success'] else "[FAIL]"
+    logger.info(f"{status_icon} {result['endpoint']}: {result['records']} registros")
     logger.info("=" * 60)
     
     # Cleanup
@@ -405,12 +336,12 @@ def main():
     # Output JSON for Node.js to parse
     print("\n__RESULT_JSON__")
     print(json.dumps({
-        'success': success_count == total_count,
-        'results': results
+        'success': result['success'],
+        'results': [result]
     }))
     
     # Exit with appropriate code
-    sys.exit(0 if success_count == total_count else 1)
+    sys.exit(0 if result['success'] else 1)
 
 
 if __name__ == '__main__':

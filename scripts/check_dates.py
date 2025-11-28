@@ -17,7 +17,7 @@ def main():
     db = client[MONGODB_DATABASE]
     
     # Colecciones a revisar
-    collections = ['balance_totals', 'balance_standard', 'balance_8columns']
+    collections = ['balance_8columns']
     
     print("=" * 80)
     print("FECHAS DISPONIBLES EN MONGODB - LAUDUS DATA")
@@ -25,7 +25,7 @@ def main():
     print()
     
     # Diccionario para agrupar fechas
-    all_dates = defaultdict(lambda: {'totals': False, 'standard': False, '8columns': False})
+    all_dates = defaultdict(lambda: {'8columns': False})
     
     # Revisar cada colección
     for collection_name in collections:
