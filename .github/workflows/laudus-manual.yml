@@ -8,11 +8,6 @@ on:
         description: 'Target date (YYYY-MM-DD)'
         required: true
         type: string
-      endpoints:
-        description: 'Endpoints to fetch (comma-separated: totals,standard,8columns)'
-        required: true
-        type: string
-        default: 'totals,standard,8columns'
 
 jobs:
   fetch-balance-sheet-manual:
@@ -34,14 +29,6 @@ jobs:
           pip install --upgrade pip
           pip install -r scripts/requirements.txt
       
-      - name: Parse endpoints
-        id: parse
-        run: |
-          # Convert comma-separated to space-separated
-          ENDPOINTS="${{ github.event.inputs.endpoints }}"
-          ENDPOINTS_FORMATTED=$(echo "$ENDPOINTS" | tr ',' ' ')
-          echo "endpoints=$ENDPOINTS_FORMATTED" >> $GITHUB_OUTPUT
-      
       - name: Fetch Balance Sheet Data
         env:
           LAUDUS_API_URL: ${{ secrets.LAUDUS_API_URL }}
@@ -52,8 +39,7 @@ jobs:
           MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
         run: |
           python scripts/fetch_balancesheet_manual.py \
-            --date "${{ github.event.inputs.date }}" \
-            --endpoints ${{ steps.parse.outputs.endpoints }}
+            --date "${{ github.event.inputs.date }}"
       
       - name: Upload logs as artifacts
         if: always()
