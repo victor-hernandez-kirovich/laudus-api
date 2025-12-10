@@ -158,6 +158,13 @@ class LaudusAPIClient:
             return None
 
 
+MONTH_NAMES = {
+    1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+    5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+    9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+}
+
+
 class MongoDBClient:
     """Client for MongoDB Atlas interactions"""
     
@@ -184,31 +191,54 @@ class MongoDBClient:
             logger.error(f"Error de conexion a MongoDB: {e}")
             return False
     
-    def save_data(self, collection_name: str, data: List[Dict], period: str) -> bool:
-        """Save invoices data to MongoDB"""
+    def save_data(self, collection_name: str, data: List[Dict], period: str, year: int, month: int) -> bool:
+        """Save invoices data to MongoDB in the expected format"""
         try:
             if not self.connected:
                 raise Exception("No conectado a MongoDB")
             
             collection = self.db[collection_name]
             
+            # Get the first record from the data (should be only one for the month)
+            if not data or len(data) == 0:
+                logger.warning("No hay datos para guardar")
+                return False
+            
+            raw_data = data[0] if len(data) == 1 else data
+            invoice_data = data[0] if isinstance(data, list) and len(data) > 0 else data
+            
+            # Build document in the expected format (same as original GitHub Actions workflow)
             document = {
-                '_id': period,  # YYYY-MM format
-                'period': period,
-                'recordCount': len(data),
+                'month': period,  # YYYY-MM format
+                'year': year,
+                'monthNumber': month,
+                'monthName': MONTH_NAMES.get(month, ''),
+                # Extract fields from invoice data
+                'total': invoice_data.get('total', 0),
+                'returns': invoice_data.get('returns', 0),
+                'returnsPercentage': invoice_data.get('returnsPercentage', 0),
+                'net': invoice_data.get('net', 0),
+                'netChangeYoYPercentage': invoice_data.get('netChangeYoYPercentage', 0),
+                'margin': invoice_data.get('margin', 0),
+                'marginChangeYoYPercentage': invoice_data.get('marginChangeYoYPercentage', 0),
+                'discounts': invoice_data.get('discounts', 0),
+                'discountsPercentage': invoice_data.get('discountsPercentage', 0),
+                'quantity': invoice_data.get('quantity', 0),
+                # Metadata
+                'rawData': raw_data,
                 'insertedAt': datetime.now(timezone.utc),
-                'loadSource': 'manual',
-                'data': data
+                'loadSource': 'manual'
             }
             
-            # Upsert (replace if exists, insert if not)
+            # Upsert by month field (replace if exists, insert if not)
             result = collection.replace_one(
-                {'_id': document['_id']},
+                {'month': period},
                 document,
                 upsert=True
             )
             
-            logger.info(f"Guardado en MongoDB: {collection_name} ({len(data)} registros)")
+            logger.info(f"Guardado en MongoDB: {collection_name} (periodo: {period})")
+            logger.info(f"   Total: {document['total']:,.0f} | Net: {document['net']:,.0f} | Margin: {document['margin']:,.2f}")
             return True
                 
         except PyMongoError as e:
@@ -300,7 +330,9 @@ def main():
             success = mongo_client.save_data(
                 ENDPOINT['collection'],
                 data,
-                period
+                period,
+                year,
+                month
             )
             
             if success:

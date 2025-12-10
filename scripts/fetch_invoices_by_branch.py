@@ -158,6 +158,13 @@ class LaudusAPIClient:
             return None
 
 
+MONTH_NAMES = {
+    1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+    5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+    9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+}
+
+
 class MongoDBClient:
     """Client for MongoDB Atlas interactions"""
     
@@ -184,31 +191,76 @@ class MongoDBClient:
             logger.error(f"Error de conexion a MongoDB: {e}")
             return False
     
-    def save_data(self, collection_name: str, data: List[Dict], period: str) -> bool:
-        """Save invoices data to MongoDB"""
+    def save_data(self, collection_name: str, data: List[Dict], period: str, year: int, month: int, first_day: str, last_day: str) -> bool:
+        """Save invoices by branch data to MongoDB - one document per month with branches array"""
         try:
             if not self.connected:
                 raise Exception("No conectado a MongoDB")
             
             collection = self.db[collection_name]
             
+            if not data or len(data) == 0:
+                logger.warning("No hay datos para guardar")
+                return False
+            
+            # Build branches array from data
+            branches = []
+            total_net = 0
+            total_margin = 0
+            total_discounts = 0
+            
+            for branch_data in data:
+                branch_name = branch_data.get('branchName') or branch_data.get('branch', 'Sin Sucursal')
+                net = branch_data.get('net', 0)
+                margin = branch_data.get('margin', 0)
+                discounts = branch_data.get('discounts', 0)
+                
+                total_net += net
+                total_margin += margin
+                total_discounts += discounts
+                
+                branches.append({
+                    'branch': branch_name,
+                    'net': net,
+                    'netPercentage': branch_data.get('netPercentage', 0),
+                    'margin': margin,
+                    'marginPercentage': branch_data.get('marginPercentage', 0),
+                    'discounts': discounts,
+                    'discountsPercentage': branch_data.get('discountsPercentage', 0)
+                })
+            
+            # Calculate averages
+            branch_count = len(branches)
+            avg_discount_percentage = sum(b.get('discountsPercentage', 0) for b in branches) / branch_count if branch_count > 0 else 0
+            avg_margin_percentage = sum(b.get('marginPercentage', 0) for b in branches) / branch_count if branch_count > 0 else 0
+            
+            # Build document in expected format
             document = {
-                '_id': period,  # YYYY-MM format
-                'period': period,
-                'recordCount': len(data),
+                'month': period,  # YYYY-MM format
+                'avgDiscountPercentage': avg_discount_percentage,
+                'avgMarginPercentage': avg_margin_percentage,
+                'branchCount': branch_count,
+                'branches': branches,
+                'endDate': last_day,
                 'insertedAt': datetime.now(timezone.utc),
-                'loadSource': 'manual',
-                'data': data
+                'monthName': MONTH_NAMES.get(month, ''),
+                'monthNumber': month,
+                'startDate': first_day,
+                'totalDiscounts': total_discounts,
+                'totalMargin': total_margin,
+                'totalNet': total_net,
+                'year': year
             }
             
-            # Upsert (replace if exists, insert if not)
+            # Upsert by month field (replace if exists, insert if not)
             result = collection.replace_one(
-                {'_id': document['_id']},
+                {'month': period},
                 document,
                 upsert=True
             )
             
-            logger.info(f"Guardado en MongoDB: {collection_name} ({len(data)} registros)")
+            logger.info(f"Guardado en MongoDB: {collection_name} ({branch_count} sucursales para {period})")
+            logger.info(f"   Total Net: {total_net:,.0f} | Total Margin: {total_margin:,.2f}")
             return True
                 
         except PyMongoError as e:
@@ -300,7 +352,11 @@ def main():
             success = mongo_client.save_data(
                 ENDPOINT['collection'],
                 data,
-                period
+                period,
+                year,
+                month,
+                first_day,
+                last_day
             )
             
             if success:

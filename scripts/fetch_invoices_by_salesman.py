@@ -158,6 +158,13 @@ class LaudusAPIClient:
             return None
 
 
+MONTH_NAMES = {
+    1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+    5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+    9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+}
+
+
 class MongoDBClient:
     """Client for MongoDB Atlas interactions"""
     
@@ -184,32 +191,58 @@ class MongoDBClient:
             logger.error(f"Error de conexion a MongoDB: {e}")
             return False
     
-    def save_data(self, collection_name: str, data: List[Dict], period: str) -> bool:
-        """Save invoices data to MongoDB"""
+    def save_data(self, collection_name: str, data: List[Dict], period: str, year: int, month: int) -> bool:
+        """Save invoices by salesman data to MongoDB - one document per salesman"""
         try:
             if not self.connected:
                 raise Exception("No conectado a MongoDB")
             
             collection = self.db[collection_name]
             
-            document = {
-                '_id': period,  # YYYY-MM format
-                'period': period,
-                'recordCount': len(data),
-                'insertedAt': datetime.now(timezone.utc),
-                'loadSource': 'manual',
-                'data': data
-            }
+            if not data or len(data) == 0:
+                logger.warning("No hay datos para guardar")
+                return False
             
-            # Upsert (replace if exists, insert if not)
-            result = collection.replace_one(
-                {'_id': document['_id']},
-                document,
-                upsert=True
-            )
+            # First, delete existing documents for this month
+            delete_result = collection.delete_many({'month': period})
+            if delete_result.deleted_count > 0:
+                logger.info(f"Eliminados {delete_result.deleted_count} documentos existentes para {period}")
             
-            logger.info(f"Guardado en MongoDB: {collection_name} ({len(data)} registros)")
-            return True
+            # Insert each salesman as a separate document
+            documents = []
+            for salesman_data in data:
+                # Handle null salesmanId/salesmanName
+                salesman_id = salesman_data.get('salesmanId')
+                salesman_name = salesman_data.get('salesmanName')
+                
+                document = {
+                    'salesmanId': salesman_id if salesman_id is not None else 0,
+                    'salesmanName': salesman_name if salesman_name is not None else 'Sin Vendedor Asignado',
+                    'net': salesman_data.get('net', 0),
+                    'netPercentage': salesman_data.get('netPercentage', 0),
+                    'comissions': salesman_data.get('comissions', 0),
+                    'margin': salesman_data.get('margin', 0),
+                    'marginPercentage': salesman_data.get('marginPercentage', 0),
+                    'discounts': salesman_data.get('discounts', 0),
+                    'discountsPercentage': salesman_data.get('discountsPercentage', 0),
+                    'numberOfDocuments': salesman_data.get('numberOfDocuments', 0),
+                    'averageTicket': salesman_data.get('averageTicket', 0),
+                    'month': period,  # YYYY-MM format
+                    'year': year,
+                    'monthNumber': month,
+                    'monthName': MONTH_NAMES.get(month, ''),
+                    'insertedAt': datetime.now(timezone.utc).isoformat(),
+                    'rawData': salesman_data
+                }
+                documents.append(document)
+            
+            # Insert all documents
+            if documents:
+                result = collection.insert_many(documents)
+                logger.info(f"Guardado en MongoDB: {collection_name} ({len(documents)} vendedores para {period})")
+                return True
+            
+            return False
                 
         except PyMongoError as e:
             logger.error(f"Error guardando en MongoDB: {e}")
@@ -300,7 +333,9 @@ def main():
             success = mongo_client.save_data(
                 ENDPOINT['collection'],
                 data,
-                period
+                period,
+                year,
+                month
             )
             
             if success:
