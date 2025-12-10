@@ -1,0 +1,51 @@
+name: Laudus Invoices Monthly Manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: 'Year (e.g., 2024)'
+        required: true
+        type: string
+      month:
+        description: 'Month (1-12)'
+        required: true
+        type: string
+
+jobs:
+  fetch-invoices-monthly:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          cd scripts
+          pip install -r requirements.txt
+
+      - name: Fetch Invoices Monthly Data
+        env:
+          LAUDUS_API_URL: ${{ secrets.LAUDUS_API_URL }}
+          LAUDUS_USERNAME: ${{ secrets.LAUDUS_USERNAME }}
+          LAUDUS_PASSWORD: ${{ secrets.LAUDUS_PASSWORD }}
+          LAUDUS_COMPANY_VAT: ${{ secrets.LAUDUS_COMPANY_VAT }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          cd scripts
+          python fetch_invoices_monthly.py --year ${{ github.event.inputs.year }} --month ${{ github.event.inputs.month }}
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoices-monthly-logs-${{ github.event.inputs.year }}-${{ github.event.inputs.month }}
+          path: scripts/*.log
+          retention-days: 30
