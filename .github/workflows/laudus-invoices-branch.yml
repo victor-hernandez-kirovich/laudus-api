@@ -11,6 +11,10 @@ on:
         description: 'Month (1-12)'
         required: true
         type: string
+      job_id:
+        description: 'Job ID for status tracking (optional)'
+        required: false
+        type: string
 
 jobs:
   fetch-invoices-branch:
@@ -40,7 +44,11 @@ jobs:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
         run: |
           cd scripts
-          python fetch_invoices_by_branch.py --year ${{ github.event.inputs.year }} --month ${{ github.event.inputs.month }}
+          if [ -n "${{ github.event.inputs.job_id }}" ]; then
+            python fetch_invoices_by_branch.py --year ${{ github.event.inputs.year }} --month ${{ github.event.inputs.month }} --job-id ${{ github.event.inputs.job_id }}
+          else
+            python fetch_invoices_by_branch.py --year ${{ github.event.inputs.year }} --month ${{ github.event.inputs.month }}
+          fi
 
       - name: Upload logs
         if: always()
