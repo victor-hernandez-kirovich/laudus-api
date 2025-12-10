@@ -248,6 +248,46 @@ class MongoDBClient:
             logger.error(f"Error guardando en MongoDB: {e}")
             return False
     
+    def update_job_status(self, job_id: str, status: str, error: str = None, records: int = 0) -> bool:
+        """Update job status in load_data_status collection"""
+        try:
+            if not self.connected or not job_id:
+                return False
+            
+            collection = self.db['load_data_status']
+            timestamp = datetime.now().strftime('%H:%M:%S')
+            
+            update_data = {
+                'status': status,
+                'completedAt': datetime.now(timezone.utc).isoformat()
+            }
+            
+            if error:
+                update_data['error'] = error
+            
+            # Build log message
+            if status == 'completed':
+                log_msg = f'[{timestamp}] ✅ Proceso completado exitosamente ({records} registros)'
+            elif status == 'failed':
+                log_msg = f'[{timestamp}] ❌ Error: {error}'
+            else:
+                log_msg = f'[{timestamp}] ℹ️ Estado: {status}'
+            
+            result = collection.update_one(
+                {'jobId': job_id},
+                {
+                    '$set': update_data,
+                    '$push': {'logs': log_msg}
+                }
+            )
+            
+            logger.info(f"Job status actualizado: {status}")
+            return result.modified_count > 0
+            
+        except PyMongoError as e:
+            logger.error(f"Error actualizando job status: {e}")
+            return False
+    
     def close(self):
         """Close MongoDB connection"""
         if self.client:
@@ -260,11 +300,13 @@ def main():
     parser = argparse.ArgumentParser(description='Fetch Laudus invoices by salesman')
     parser.add_argument('--year', required=True, type=int, help='Target year (e.g., 2024)')
     parser.add_argument('--month', required=True, type=int, help='Target month (1-12)')
+    parser.add_argument('--job-id', type=str, default=None, help='Job ID for status tracking (optional)')
     
     args = parser.parse_args()
     
     year = args.year
     month = args.month
+    job_id = args.job_id
     
     # Validate month
     if month < 1 or month > 12:
@@ -363,6 +405,13 @@ def main():
     status_icon = "[OK]" if result['success'] else "[FAIL]"
     logger.info(f"{status_icon} {result['endpoint']}: {result['records']} registros")
     logger.info("=" * 60)
+    
+    # Update job status if job_id provided
+    if job_id:
+        if result['success']:
+            mongo_client.update_job_status(job_id, 'completed', records=result['records'])
+        else:
+            mongo_client.update_job_status(job_id, 'failed', error='Error al obtener o guardar datos')
     
     # Cleanup
     mongo_client.close()
